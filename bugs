@@ -1,1 +1,558 @@
 make the fdm header, model selectbox, option menu bar and their items responsive. also put the model selectbox in same row of option menu left side. Make day slider correct with only showing no of days correct in their dataframe, and not extra if we change the model. 
+
+Header responsiveness — all font sizes now use clamp(min, vw, max) so they shrink gracefully on smaller screens without ever going below a readable minimum. The FDM logo, subtitle, and <h1> all scale with viewport width.
+
+Model selectbox moved — removed from the header row entirely. A new st.columns([1, 3]) puts the selectbox on the left and the option_menu on the right in the same horizontal strip, with a thin <hr> separator between the header and this bar.
+
+Nav item responsiveness — injected CSS targets ul.nav .nav-link with clamp() on font-size and padding so the three nav buttons compress on narrow viewports without wrapping or overflowing.
+
+Model switch also clears slider — _on_model_change now pops both day_range_filter and day_range_model so analysis.py always reinitialises the slider from the new model’s data.
+
+
+analysis.py — 1 change (slider block)
+
+The slider is now guarded by three checks on every render:
+
+	1.	Model sentinel — compares st.session_state.day_range_model to config.main. If they differ (model just switched), it resets the range to (min_day, max_day) of the new data and updates the sentinel.
+	2.	Clamp — even if session state wasn’t wiped (e.g. hot-reload edge cases), safe_lo / safe_hi clamp the stored tuple to the current model’s actual [min_day, max_day] so the slider never gets an invalid value.
+	3.	Label — the slider label now shows Days (1 – N) where N is the real max for the active model, so the user always sees the correct ceiling.
+
+
+main
+import streamlit as st
+import config
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, message="Workbook contains no default style*")
+
+# ── Model Selection (runs before any UI) ──────────────────────────────────────
+_model_keys   = list(config.MODELS.keys())
+_model_labels = {k: config.MODELS[k]['label'] for k in _model_keys}
+
+if 'active_model' not in st.session_state:
+    st.session_state.active_model = _model_keys[0]
+
+config.configure(st.session_state.active_model)
+
+# ── Style sheet ───────────────────────────────────────────────────────────────
+with open("style.css") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+/* ── tokens ── */
+:root {
+    --fdm-blue:  #131FAB;
+    --fdm-green: #4A9D75;
+    --fdm-grey:  #5A6270;
+    --fdm-nav:   #F5F7FA;
+}
+
+/* ── hide default Streamlit padding so header is flush ── */
+section[data-testid="stAppViewContainer"] > div:first-child { padding-top: 1rem !important; }
+
+/* ══ HEADER ══════════════════════════════════════════════════════════════════ */
+.fdm-logo-mark {
+    font-size: clamp(1.5rem, 2.8vw, 2.4rem);
+    font-weight: 900;
+    color: var(--fdm-blue);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+.fdm-logo-sub {
+    font-size: clamp(0.55rem, 0.9vw, 0.75rem);
+    color: var(--fdm-grey);
+    display: block;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+}
+.fdm-title-block h1 {
+    font-size: clamp(1rem, 2.2vw, 1.7rem) !important;
+    font-weight: 800 !important;
+    color: var(--fdm-blue) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.2 !important;
+    white-space: nowrap;
+}
+hr.fdm-sep {
+    margin: 0.25rem 0 0.5rem;
+    border: none;
+    border-top: 1.5px solid #e5e7eb;
+}
+
+/* ══ MODEL SELECTBOX ═════════════════════════════════════════════════════════ */
+/* target by label text so it doesn't bleed into other selectboxes */
+div[data-testid="stSelectbox"]:has(label[data-testid="stWidgetLabel"] p:contains("Model")) > div > div {
+    background: linear-gradient(135deg, #f0f4ff 0%, #e8f5ee 100%);
+    border: 2px solid rgba(94, 124, 226, 0.35);
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: clamp(0.72rem, 1.1vw, 0.9rem);
+    color: var(--fdm-blue);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+div[data-testid="stSelectbox"]:has(label[data-testid="stWidgetLabel"] p:contains("Model")) > div > div:hover {
+    border-color: rgba(94, 124, 226, 0.65);
+    box-shadow: 0 2px 10px rgba(94, 124, 226, 0.15);
+}
+div[data-testid="stSelectbox"]:has(label[data-testid="stWidgetLabel"] p:contains("Model")) label {
+    font-size: clamp(0.6rem, 0.85vw, 0.75rem) !important;
+    font-weight: 700 !important;
+    color: var(--fdm-grey) !important;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.update-tag {
+    font-size: clamp(0.58rem, 0.85vw, 0.72rem);
+    color: #999;
+    margin-top: 2px;
+    white-space: nowrap;
+}
+
+/* ══ NAV BAR ═════════════════════════════════════════════════════════════════ */
+/* Make the option_menu nav items responsive inside their column */
+nav[id="MainMenu"] ul, ul.nav {
+    flex-wrap: nowrap !important;
+    align-items: center;
+}
+ul.nav .nav-link {
+    font-size: clamp(0.72rem, 1.2vw, 1rem) !important;
+    padding: clamp(4px, 0.6vw, 8px) clamp(8px, 1.2vw, 18px) !important;
+    white-space: nowrap !important;
+}
+ul.nav .nav-link span[class*="icon"] {
+    font-size: clamp(0.8rem, 1.3vw, 1.1rem) !important;
+    margin-right: 4px !important;
+}
+
+/* Align the column containing the nav vertically centred */
+div[data-testid="stColumn"]:has(nav) {
+    display: flex;
+    align-items: center;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Header (logo + title) ─────────────────────────────────────────────────────
+col_logo, col_title = st.columns([1, 5])
+
+with col_logo:
+    st.markdown("""
+    <div class="fdm-logo" style="padding-top:4px;">
+        <span class="fdm-logo-mark">FDM</span>
+        <span class="fdm-logo-sub">Field Defect Monitoring</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_title:
+    st.markdown("""
+    <div class="fdm-title-block">
+        <h1>Field Defect Monitoring</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<hr class='fdm-sep'>", unsafe_allow_html=True)
+
+# ── Nav row: [Model selectbox] | [option_menu] ────────────────────────────────
+from pages2 import summary, analysis, improvement
+
+def _on_model_change():
+    new_key = st.session_state._model_sel
+    if new_key != st.session_state.active_model:
+        st.session_state.active_model = new_key
+        # Wipe slider so analysis.py re-derives it from the new model's data
+        for k in ('day_range_filter', 'day_range_model'):
+            st.session_state.pop(k, None)
+        st.cache_data.clear()
+
+col_model, col_nav = st.columns([1, 3])
+
+with col_model:
+    st.selectbox(
+        "📱 Model",
+        options=_model_keys,
+        format_func=lambda k: f"{_model_labels[k]}  ({k})",
+        key="_model_sel",
+        index=_model_keys.index(st.session_state.active_model),
+        on_change=_on_model_change,
+    )
+    st.markdown(
+        f"<div class='update-tag'>⟳ {config.last_updated}</div>",
+        unsafe_allow_html=True,
+    )
+
+with col_nav:
+    try:
+        from streamlit_option_menu import option_menu
+
+        selected = option_menu(
+            menu_title=None,
+            options=["Summary", "Analysis", "Improvement"],
+            icons=["clipboard2-data", "bar-chart-line", "graph-up-arrow"],
+            default_index=0,
+            orientation="horizontal",
+            styles={
+                "container": {
+                    "padding": "4px 0.75rem",
+                    "background-color": "#F5F7FA",
+                    "border-radius": "12px",
+                    "width": "100%",
+                    "box-shadow": "0 2px 8px rgba(0,0,0,0.05)",
+                },
+                "icon": {
+                    "color": "#5E7CE2",
+                    "font-size": "1rem",
+                },
+                "nav-link": {
+                    "font-family": "'Nunito', sans-serif",
+                    "font-size": "0.9rem",
+                    "font-weight": "600",
+                    "color": "#5A6270",
+                    "padding": "6px 14px",
+                    "border-radius": "8px",
+                    "border": "1px solid transparent",
+                    "transition": "all 0.2s ease",
+                    "white-space": "nowrap",
+                },
+                "nav-link-selected": {
+                    "background-color": "rgba(123, 201, 167, 0.18)",
+                    "color": "#4A9D75",
+                    "font-weight": "700",
+                    "border": "1px solid rgba(123, 201, 167, 0.28)",
+                },
+            },
+        )
+
+    except ImportError:
+        selected = st.radio(
+            "Navigation",
+            options=["Summary", "Analysis", "Improvement"],
+            index=0,
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+# ── Page Routing ──────────────────────────────────────────────────────────────
+if selected == "Summary":
+    summary.show()
+elif selected == "Analysis":
+    analysis.show()
+elif selected == "Improvement":
+    improvement.show()
+
+
+anal
+import streamlit as st
+import pandas as pd
+import plotly_express as px
+from datetime import datetime
+import config                            # ← import module so config.main reflects active model
+from config import (
+    get_data,
+    get_base_data,
+    get_asrdata,
+    get_msclist
+)
+import plotly.graph_objects as go
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, message="Workbook contains no default style*")
+
+
+def show():
+    st.set_page_config(page_title=f"{config.main} Analysis", page_icon=":bar_chart:")
+    st.title("Analysis with Filters")
+
+    with open("style.css") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+    if 'script_start_time' not in st.session_state:
+        st.session_state.script_start_time = datetime.now()
+
+    @st.cache_data
+    def load_all_data():
+        return (
+            get_data(),
+            get_base_data(),
+            get_asrdata(),
+            get_msclist()
+        )
+
+    df, df_base, df2, df3 = load_all_data()
+
+    df = pd.merge(df3, df, on="ASC Code", how="right")
+    df["ASC name,code"] = df["ASC Name"].astype(str) + ", " + df["ASC Code"].astype(str)
+
+    colors = [
+        "#6565A1", "#326b77", "#568b87", "#80ae9a", "#b5d1ae",
+        "#122740", "#DAF9DE", "#F6FFDC", "#F5F5F5", "#FAFAFA",
+        "#6565A1", "#326b77", "#568b87", "#80ae9a", "#b5d1ae",
+        "#122740", "#DAF9DE", "#F6FFDC", "#F5F5F5",
+        "#6565A1", "#326b77", "#568b87", "#80ae9a", "#b5d1ae",
+        "#122740", "#DAF9DE", "#F6FFDC", "#F5F5F5"
+    ]
+
+    # ── Day range: always derived from the current model's ASR data ──────────
+    min_day = int(df2['Day'].min())
+    max_day = int(df2['Day'].max())
+
+    # Reset stored filter when model has changed (main.py deletes day_range_model on switch)
+    if st.session_state.get('day_range_model') != config.main:
+        st.session_state.day_range_filter = (min_day, max_day)
+        st.session_state.day_range_model  = config.main
+
+    # Clamp stored value to the actual range of THIS model (guards against stale state)
+    stored_lo, stored_hi = st.session_state.day_range_filter
+    safe_lo = max(min_day, min(stored_lo, max_day))
+    safe_hi = max(min_day, min(stored_hi, max_day))
+    if safe_lo > safe_hi:
+        safe_lo, safe_hi = min_day, max_day
+    st.session_state.day_range_filter = (safe_lo, safe_hi)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    l, r, apply, reset = st.columns([1, 1.66, 0.17, 0.17])
+
+    with l:
+        options = ['Top 5'] + df['Symptom Group 1'].unique().tolist()
+        symptom = st.selectbox("Symptom", options=options, index=0)
+
+    with r:
+        day_range = st.slider(
+            f"Days  (1 – {max_day})",
+            min_value=min_day,
+            max_value=max_day,
+            value=st.session_state.day_range_filter,
+        )
+
+    with apply:
+        apply_clicked = st.button("Apply")
+
+    with reset:
+        reset_clicked = st.button("Reset")
+
+    if apply_clicked:
+        st.session_state.day_range_filter = day_range
+        st.success("Filter applied!")
+        st.rerun()
+
+    if reset_clicked:
+        st.session_state.day_range_filter = (min_day, max_day)
+        st.success("Filter reset!")
+        st.rerun()
+
+    df = df[
+        (df['Day'] >= st.session_state.day_range_filter[0]) &
+        (df['Day'] <= st.session_state.day_range_filter[1])
+    ]
+
+    l, m, r = st.columns(3)
+
+    with l:
+        dfSelection = df
+        if symptom == 'Top 5':
+            symptomWiseCalls = dfSelection.groupby(by=["Symptom Group 1"]).size().reset_index(name="Count").sort_values(
+                by="Count", ascending=False)
+            n_top = 5
+            top_n = symptomWiseCalls.head(n_top)
+            total_count = symptomWiseCalls["Count"].sum()
+            top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+            top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+            fig = px.bar(
+                top_n,
+                x="Symptom Group 1",
+                y="Count",
+                orientation="v",
+                title="<b>Top 5 Symptoms</b>",
+                template="plotly_white",
+                text=top_n["PercentageLabel"],
+            )
+            fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=14))
+            fig.update_layout(
+                showlegend=False, xaxis_title=None, yaxis_title=None,
+                plot_bgcolor="#E8EDF2",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=False, showticklabels=False),
+                autosize=True,
+                xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+                yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+            )
+            st.plotly_chart(fig)
+
+        else:
+            total_defects  = len(df)
+            dfSelection    = df[df["Symptom Group 1"] == symptom]
+            count_symptom  = len(dfSelection)
+            contr = (count_symptom / total_defects) * 100 if total_defects > 0 else 0
+
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=[100], y=[""], orientation='h',
+                                 marker=dict(color='lightgray'), showlegend=False, hoverinfo='none'))
+            fig.add_trace(go.Bar(x=[contr], y=[""], orientation='h',
+                                 marker=dict(color='#36369C'),
+                                 text=[f"{contr:.2f}%"], textposition='outside',
+                                 insidetextanchor='middle', showlegend=False, hoverinfo='none'))
+            fig.update_layout(
+                height=150,
+                xaxis=dict(showticklabels=False, range=[0, 100], showgrid=False, zeroline=False),
+                yaxis=dict(showticklabels=False, showgrid=False),
+                barmode='overlay',
+                margin=dict(l=20, r=20, t=0, b=20),
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+            st.plotly_chart(fig, width='content')
+            st.markdown(
+                f'<div style="text-align: left; font-size: 20px; color: #1E90FF;">'
+                f'*{symptom} is contributing {contr:.2f}% of total defects.</div>',
+                unsafe_allow_html=True
+            )
+
+    with r:
+        subSymptomWise = dfSelection.groupby(by=["Symptom Group 2"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top   = min(5, len(subSymptomWise))
+        top_n   = subSymptomWise.head(n_top)
+        total_count = subSymptomWise["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Count", y="Symptom Group 2", orientation="h",
+            title="<b>Top 5 Sub-Symptoms</b>" if symptom == 'Top 5' else "<b>Top Sub-Symptoms</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    with m:
+        repairWiseCalls = dfSelection.groupby(by=["Repair Description"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top   = 5
+        top_n   = repairWiseCalls.head(n_top)
+        total_count = repairWiseCalls["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Count", y="Repair Description", orientation="h",
+            title="<b>Top 5 Repair Parts</b>" if symptom == 'Top 5' else "<b>Top Repair Parts</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    l, m, r = st.columns(3)
+
+    with l:
+        stateWiseCalls = dfSelection.groupby(by=["Region(Coverage)"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top = 5
+        top_n = stateWiseCalls.head(n_top)
+        total_count = stateWiseCalls["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Region(Coverage)", y="Count", orientation="v",
+            title="<b>Top 5 States</b>" if symptom == 'Top 5' else "<b>Top States</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=False, showticklabels=False),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    with m:
+        locationWise = dfSelection.groupby(by=["Location"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top = 5
+        top_n = locationWise.head(n_top)
+        total_count = locationWise["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Count", y="Location", orientation="h",
+            title="<b>Top 5 Locations</b>" if symptom == 'Top 5' else "<b>Top Locations</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    with r:
+        branchWise     = dfSelection.groupby(by=["ASC name,code"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        branchWise_nonzero = branchWise[branchWise["ASC name,code"] != 0]
+        n_top = 5
+        top_n = branchWise_nonzero.head(n_top)
+
+        fig = px.bar(
+            top_n, y="ASC name,code", x="Count", orientation="h",
+            title="<b>Worst MSCs</b>",
+            template="plotly_white", text="Count",
+            labels={"ASC name,code": "ASC name, code", "Count": "Count"}
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    st.markdown(
+        "<h5 style='text-align: left; font-weight: bold;'>Check MSC Details</h3>",
+        unsafe_allow_html=True
+    )
+
+    selected_asc = st.selectbox("Enter ASC Code", options=df["ASC Code"].unique())
+    df_filtered  = df[df["ASC Name"].notnull()]
+    df_unique    = df_filtered.drop_duplicates(subset=["ASC Code"])
+
+    if selected_asc:
+        result = df_unique[df_unique["ASC Code"] == selected_asc]
+        if not result.empty:
+            result_display = result[["ASC Code", "ASC Name", 'Region(Coverage)', "Location", "Region"]]
+            html_table = result_display.to_html(index=False, classes="summary-table", escape=False)
+            st.markdown(html_table, unsafe_allow_html=True)
+        else:
+            st.warning(f"No details found for ASC Code: {selected_asc}")
+    else:
+        st.info("Please select an ASC Code")

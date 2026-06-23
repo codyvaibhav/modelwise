@@ -1,0 +1,1 @@
+make the fdm header, model selectbox, option menu bar and their items responsive. also put the model selectbox in same row of option menu left side. Make day slider correct with only showing no of days correct in their dataframe, and not extra if we change the model. 

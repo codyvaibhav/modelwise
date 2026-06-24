@@ -1,0 +1,358 @@
+import streamlit as st
+import pandas as pd
+import plotly_express as px
+from datetime import datetime
+import config                            # ← import module so config.main reflects active model
+from config import (
+    get_data,
+    get_base_data,
+    get_asrdata,
+    get_msclist
+)
+import plotly.graph_objects as go
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, message="Workbook contains no default style*")
+
+
+def show():
+    st.set_page_config(page_title=f"{config.main} Analysis", page_icon=":bar_chart:")
+    st.title("Analysis with Filters")
+
+    with open("style.css") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+    # ── Slider polish ──────────────────────────────────────────────────────────
+    st.markdown("""
+    <style>
+    div[data-testid="stSlider"] [data-baseweb="slider"] > div:first-child {
+        height: 6px !important; border-radius: 3px !important; background: #dde3f0 !important;
+    }
+    div[data-testid="stSlider"] [data-baseweb="slider"] > div:first-child > div:nth-child(4) {
+        background: linear-gradient(90deg,#5E7CE2 0%,#4A9D75 100%) !important;
+        height: 6px !important; border-radius: 3px !important;
+    }
+    div[data-testid="stSlider"] [role="slider"] {
+        background: #131FAB !important;
+        border: 3px solid #fff !important;
+        box-shadow: 0 2px 8px rgba(19,31,171,.30) !important;
+        width: 20px !important; height: 20px !important;
+        border-radius: 50% !important;
+        transition: box-shadow .15s ease !important;
+    }
+    div[data-testid="stSlider"] [role="slider"]:hover {
+        box-shadow: 0 3px 14px rgba(19,31,171,.45) !important;
+    }
+    div[data-testid="stSlider"] [data-testid="stTickBarMin"],
+    div[data-testid="stSlider"] [data-testid="stTickBarMax"] {
+        font-size: .72rem; color: #888; font-weight: 600;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    if 'script_start_time' not in st.session_state:
+        st.session_state.script_start_time = datetime.now()
+
+    @st.cache_data
+    def load_all_data():
+        return (
+            get_data(),
+            get_base_data(),
+            get_asrdata(),
+            get_msclist()
+        )
+
+    df, df_base, df2, df3 = load_all_data()
+
+    df = pd.merge(df3, df, on="ASC Code", how="right")
+    df["ASC name,code"] = df["ASC Name"].astype(str) + ", " + df["ASC Code"].astype(str)
+
+    colors = [
+        "#6565A1", "#326b77", "#568b87", "#80ae9a", "#b5d1ae",
+        "#122740", "#DAF9DE", "#F6FFDC", "#F5F5F5", "#FAFAFA",
+        "#6565A1", "#326b77", "#568b87", "#80ae9a", "#b5d1ae",
+        "#122740", "#DAF9DE", "#F6FFDC", "#F5F5F5",
+        "#6565A1", "#326b77", "#568b87", "#80ae9a", "#b5d1ae",
+        "#122740", "#DAF9DE", "#F6FFDC", "#F5F5F5"
+    ]
+
+    # ── Day range: always derived from the current model's ASR data ──────────
+    min_day = int(df2['Day'].min())
+    max_day = int(df2['Day'].max())
+
+    # Reset stored filter when model has changed (main.py deletes day_range_model on switch)
+    if st.session_state.get('day_range_model') != config.main:
+        st.session_state.day_range_filter = (min_day, max_day)
+        st.session_state.day_range_model  = config.main
+
+    # Clamp stored value to the actual range of THIS model (guards against stale state)
+    stored_lo, stored_hi = st.session_state.day_range_filter
+    safe_lo = max(min_day, min(stored_lo, max_day))
+    safe_hi = max(min_day, min(stored_hi, max_day))
+    if safe_lo > safe_hi:
+        safe_lo, safe_hi = min_day, max_day
+    st.session_state.day_range_filter = (safe_lo, safe_hi)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    l, r, apply, reset = st.columns([1, 1.66, 0.17, 0.17])
+
+    with l:
+        options = ['Top 5'] + df['Symptom Group 1'].unique().tolist()
+        symptom = st.selectbox("Symptom", options=options, index=0)
+
+    with r:
+        day_range = st.slider(
+            f"Days  (1 – {max_day})",
+            min_value=min_day,
+            max_value=max_day,
+            value=st.session_state.day_range_filter,
+        )
+
+    with apply:
+        apply_clicked = st.button("Apply")
+
+    with reset:
+        reset_clicked = st.button("Reset")
+
+    if apply_clicked:
+        st.session_state.day_range_filter = day_range
+        st.success("Filter applied!")
+        st.rerun()
+
+    if reset_clicked:
+        st.session_state.day_range_filter = (min_day, max_day)
+        st.success("Filter reset!")
+        st.rerun()
+
+    df = df[
+        (df['Day'] >= st.session_state.day_range_filter[0]) &
+        (df['Day'] <= st.session_state.day_range_filter[1])
+    ]
+
+    l, m, r = st.columns(3)
+
+    with l:
+        dfSelection = df
+        if symptom == 'Top 5':
+            symptomWiseCalls = dfSelection.groupby(by=["Symptom Group 1"]).size().reset_index(name="Count").sort_values(
+                by="Count", ascending=False)
+            n_top = 5
+            top_n = symptomWiseCalls.head(n_top)
+            total_count = symptomWiseCalls["Count"].sum()
+            top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+            top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+            fig = px.bar(
+                top_n,
+                x="Symptom Group 1",
+                y="Count",
+                orientation="v",
+                title="<b>Top 5 Symptoms</b>",
+                template="plotly_white",
+                text=top_n["PercentageLabel"],
+            )
+            fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=14))
+            fig.update_layout(
+                showlegend=False, xaxis_title=None, yaxis_title=None,
+                plot_bgcolor="#E8EDF2",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=False, showticklabels=False),
+                autosize=True,
+                xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+                yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+            )
+            st.plotly_chart(fig)
+
+        else:
+            total_defects  = len(df)
+            dfSelection    = df[df["Symptom Group 1"] == symptom]
+            count_symptom  = len(dfSelection)
+            contr = (count_symptom / total_defects) * 100 if total_defects > 0 else 0
+
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=[100], y=[""], orientation='h',
+                                 marker=dict(color='lightgray'), showlegend=False, hoverinfo='none'))
+            fig.add_trace(go.Bar(x=[contr], y=[""], orientation='h',
+                                 marker=dict(color='#36369C'),
+                                 text=[f"{contr:.2f}%"], textposition='outside',
+                                 insidetextanchor='middle', showlegend=False, hoverinfo='none'))
+            fig.update_layout(
+                height=150,
+                xaxis=dict(showticklabels=False, range=[0, 100], showgrid=False, zeroline=False),
+                yaxis=dict(showticklabels=False, showgrid=False),
+                barmode='overlay',
+                margin=dict(l=20, r=20, t=0, b=20),
+                plot_bgcolor='rgba(0,0,0,0)'
+            )
+            st.plotly_chart(fig, width='content')
+            st.markdown(
+                f'<div style="text-align: left; font-size: 20px; color: #1E90FF;">'
+                f'*{symptom} is contributing {contr:.2f}% of total defects.</div>',
+                unsafe_allow_html=True
+            )
+
+    with r:
+        subSymptomWise = dfSelection.groupby(by=["Symptom Group 2"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top   = min(5, len(subSymptomWise))
+        top_n   = subSymptomWise.head(n_top)
+        total_count = subSymptomWise["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Count", y="Symptom Group 2", orientation="h",
+            title="<b>Top 5 Sub-Symptoms</b>" if symptom == 'Top 5' else "<b>Top Sub-Symptoms</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    with m:
+        repairWiseCalls = dfSelection.groupby(by=["Repair Description"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top   = 5
+        top_n   = repairWiseCalls.head(n_top)
+        total_count = repairWiseCalls["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Count", y="Repair Description", orientation="h",
+            title="<b>Top 5 Repair Parts</b>" if symptom == 'Top 5' else "<b>Top Repair Parts</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    l, m, r = st.columns(3)
+
+    with l:
+        stateWiseCalls = dfSelection.groupby(by=["Region(Coverage)"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top = 5
+        top_n = stateWiseCalls.head(n_top)
+        total_count = stateWiseCalls["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Region(Coverage)", y="Count", orientation="v",
+            title="<b>Top 5 States</b>" if symptom == 'Top 5' else "<b>Top States</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=False, showticklabels=False),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    with m:
+        locationWise = dfSelection.groupby(by=["Location"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        n_top = 5
+        top_n = locationWise.head(n_top)
+        total_count = locationWise["Count"].sum()
+        top_n["Percentage"]      = (top_n["Count"] / total_count) * 100
+        top_n["PercentageLabel"] = top_n["Percentage"].apply(lambda x: f"{int(x)}%")
+
+        fig = px.bar(
+            top_n, x="Count", y="Location", orientation="h",
+            title="<b>Top 5 Locations</b>" if symptom == 'Top 5' else "<b>Top Locations</b>",
+            template="plotly_white", text=top_n["PercentageLabel"],
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    with r:
+        branchWise     = dfSelection.groupby(by=["ASC name,code"]).size().reset_index(name="Count").sort_values(
+            by="Count", ascending=False)
+        branchWise_nonzero = branchWise[branchWise["ASC name,code"] != 0]
+        n_top = 5
+        top_n = branchWise_nonzero.head(n_top)
+
+        fig = px.bar(
+            top_n, y="ASC name,code", x="Count", orientation="h",
+            title="<b>Worst MSCs</b>",
+            template="plotly_white", text="Count",
+            labels={"ASC name,code": "ASC name, code", "Count": "Count"}
+        )
+        fig.update_traces(marker_color=colors[:len(top_n)], textfont=dict(size=16))
+        fig.update_layout(
+            showlegend=False, xaxis_title=None, yaxis_title=None,
+            plot_bgcolor="#E8EDF2",
+            xaxis=dict(showgrid=False, showticklabels=False),
+            yaxis=dict(showgrid=False, autorange="reversed"),
+            autosize=True,
+            xaxis_tickfont_family="Arial", xaxis_tickfont_size=12,
+            yaxis_tickfont_family="Arial", yaxis_tickfont_size=12,
+        )
+        st.plotly_chart(fig)
+
+    st.markdown(
+        "<h5 style='text-align: left; font-weight: bold;'>Check MSC Details</h3>",
+        unsafe_allow_html=True
+    )
+
+    # Default to the #1 worst MSC (top of the bar chart above)
+    _top_asc_code = None
+    if not branchWise_nonzero.empty:
+        try:
+            _top_asc_code = int(str(branchWise_nonzero.iloc[0]["ASC name,code"]).split(", ")[-1])
+        except (ValueError, IndexError):
+            pass
+
+    _asc_options = df["ASC Code"].unique().tolist()
+    _default_idx = (
+        _asc_options.index(_top_asc_code)
+        if _top_asc_code is not None and _top_asc_code in _asc_options
+        else 0
+    )
+
+    selected_asc = st.selectbox("Enter ASC Code", options=_asc_options, index=_default_idx)
+    df_filtered  = df[df["ASC Name"].notnull()]
+    df_unique    = df_filtered.drop_duplicates(subset=["ASC Code"])
+
+    if selected_asc:
+        result = df_unique[df_unique["ASC Code"] == selected_asc]
+        if not result.empty:
+            result_display = result[["ASC Code", "ASC Name", 'Region(Coverage)', "Location", "Region"]]
+            html_table = result_display.to_html(index=False, classes="summary-table", escape=False)
+            st.markdown(html_table, unsafe_allow_html=True)
+        else:
+            st.warning(f"No details found for ASC Code: {selected_asc}")
+    else:
+        st.info("Please select an ASC Code")

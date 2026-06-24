@@ -1,0 +1,234 @@
+import streamlit as st
+import config
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, message="Workbook contains no default style*")
+
+# ── Model Selection (runs before any UI) ──────────────────────────────────────
+_model_keys   = list(config.MODELS.keys())
+_model_labels = {k: config.MODELS[k]['label'] for k in _model_keys}
+
+if 'active_model' not in st.session_state:
+    st.session_state.active_model = _model_keys[0]
+
+config.configure(st.session_state.active_model)
+
+# ── Style sheet ───────────────────────────────────────────────────────────────
+with open("style.css") as f:
+    st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+
+st.markdown("""
+<style>
+/* ── tokens ── */
+:root {
+    --fdm-blue:  #131FAB;
+    --fdm-green: #4A9D75;
+    --fdm-grey:  #5A6270;
+    --fdm-nav:   #F5F7FA;
+}
+
+/* ── hide default Streamlit padding so header is flush ── */
+section[data-testid="stAppViewContainer"] > div:first-child { padding-top: 1rem !important; }
+
+/* ══ HEADER ══════════════════════════════════════════════════════════════════ */
+.fdm-logo-mark {
+    font-size: clamp(1.5rem, 2.8vw, 2.4rem);
+    font-weight: 900;
+    color: var(--fdm-blue);
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+}
+.fdm-logo-sub {
+    font-size: clamp(0.55rem, 0.9vw, 0.75rem);
+    color: var(--fdm-grey);
+    display: block;
+    white-space: nowrap;
+    letter-spacing: 0.02em;
+}
+.fdm-title-block h1 {
+    font-size: clamp(1rem, 2.2vw, 1.7rem) !important;
+    font-weight: 800 !important;
+    color: var(--fdm-blue) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.2 !important;
+    white-space: nowrap;
+}
+hr.fdm-sep {
+    margin: 0.25rem 0 0.5rem;
+    border: none;
+    border-top: 1.5px solid #e5e7eb;
+}
+
+/* ══ MODEL SELECTBOX ═════════════════════════════════════════════════════════ */
+/* target by label text so it doesn't bleed into other selectboxes */
+div[data-testid="stSelectbox"]:has(label[data-testid="stWidgetLabel"] p:contains("Model")) > div > div {
+    background: linear-gradient(135deg, #f0f4ff 0%, #e8f5ee 100%);
+    border: 2px solid rgba(94, 124, 226, 0.35);
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: clamp(0.72rem, 1.1vw, 0.9rem);
+    color: var(--fdm-blue);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+div[data-testid="stSelectbox"]:has(label[data-testid="stWidgetLabel"] p:contains("Model")) > div > div:hover {
+    border-color: rgba(94, 124, 226, 0.65);
+    box-shadow: 0 2px 10px rgba(94, 124, 226, 0.15);
+}
+div[data-testid="stSelectbox"]:has(label[data-testid="stWidgetLabel"] p:contains("Model")) label {
+    font-size: clamp(0.6rem, 0.85vw, 0.75rem) !important;
+    font-weight: 700 !important;
+    color: var(--fdm-grey) !important;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+.update-tag {
+    font-size: clamp(0.58rem, 0.85vw, 0.72rem);
+    color: #999;
+    margin-top: 2px;
+    white-space: nowrap;
+}
+
+/* ══ NAV BAR ═════════════════════════════════════════════════════════════════ */
+/* Make the option_menu nav items responsive inside their column */
+nav[id="MainMenu"] ul, ul.nav {
+    flex-wrap: nowrap !important;
+    align-items: center;
+}
+ul.nav .nav-link {
+    font-size: clamp(0.72rem, 1.2vw, 1rem) !important;
+    padding: clamp(4px, 0.6vw, 8px) clamp(8px, 1.2vw, 18px) !important;
+    white-space: nowrap !important;
+}
+ul.nav .nav-link span[class*="icon"] {
+    font-size: clamp(0.8rem, 1.3vw, 1.1rem) !important;
+    margin-right: 4px !important;
+}
+
+/* Align the column containing the nav vertically centred */
+div[data-testid="stColumn"]:has(nav) {
+    display: flex;
+    align-items: center;
+}
+
+/* ══ ICONS-ONLY NAV — hide text labels, keep icons only ════════════════════ */
+ul.nav .nav-link span.ms-1,
+ul.nav .nav-link span:not(.icon) {
+    display: none !important;
+}
+ul.nav .nav-link {
+    justify-content: center !important;
+    padding: clamp(6px, 0.8vw, 10px) clamp(12px, 1.6vw, 26px) !important;
+}
+ul.nav .nav-link i {
+    font-size: clamp(1.15rem, 1.9vw, 1.55rem) !important;
+    margin: 0 !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Header (logo + title) ─────────────────────────────────────────────────────
+col_logo, col_title = st.columns([1, 5])
+
+with col_logo:
+    st.markdown("""
+    <div class="fdm-logo" style="padding-top:4px;">
+        <span class="fdm-logo-mark">FDM</span>
+        <span class="fdm-logo-sub">Field Defect Monitoring</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_title:
+    st.markdown("""
+    <div class="fdm-title-block">
+        <h1>Field Defect Monitoring</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.markdown("<hr class='fdm-sep'>", unsafe_allow_html=True)
+
+# ── Nav row: [Model selectbox] | [option_menu] ────────────────────────────────
+from pages2 import summary, analysis, improvement
+
+def _on_model_change():
+    new_key = st.session_state._model_sel
+    if new_key != st.session_state.active_model:
+        st.session_state.active_model = new_key
+        # Wipe slider so analysis.py re-derives it from the new model's data
+        for k in ('day_range_filter', 'day_range_model'):
+            st.session_state.pop(k, None)
+        st.cache_data.clear()
+
+col_model, col_nav = st.columns([1, 3])
+
+with col_model:
+    st.selectbox(
+        "📱 Model",
+        options=_model_keys,
+        format_func=lambda k: f"{_model_labels[k]}  ({k})",
+        key="_model_sel",
+        index=_model_keys.index(st.session_state.active_model),
+        on_change=_on_model_change,
+    )
+    st.markdown(
+        f"<div class='update-tag'>⟳ {config.last_updated}</div>",
+        unsafe_allow_html=True,
+    )
+
+with col_nav:
+    try:
+        from streamlit_option_menu import option_menu
+
+        selected = option_menu(
+            menu_title=None,
+            options=["Summary", "Analysis", "Improvement"],
+            icons=["clipboard2-data", "bar-chart-line", "graph-up-arrow"],
+            default_index=0,
+            orientation="horizontal",
+            styles={
+                "container": {
+                    "padding": "4px 0.75rem",
+                    "background-color": "#F5F7FA",
+                    "border-radius": "12px",
+                    "width": "100%",
+                    "box-shadow": "0 2px 8px rgba(0,0,0,0.05)",
+                },
+                "icon": {
+                    "color": "#5E7CE2",
+                    "font-size": "1rem",
+                },
+                "nav-link": {
+                    "font-family": "'Nunito', sans-serif",
+                    "font-size": "0.9rem",
+                    "font-weight": "600",
+                    "color": "#5A6270",
+                    "padding": "6px 14px",
+                    "border-radius": "8px",
+                    "border": "1px solid transparent",
+                    "transition": "all 0.2s ease",
+                    "white-space": "nowrap",
+                },
+                "nav-link-selected": {
+                    "background-color": "rgba(123, 201, 167, 0.18)",
+                    "color": "#4A9D75",
+                    "font-weight": "700",
+                    "border": "1px solid rgba(123, 201, 167, 0.28)",
+                },
+            },
+        )
+
+    except ImportError:
+        selected = st.radio(
+            "Navigation",
+            options=["Summary", "Analysis", "Improvement"],
+            index=0,
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+# ── Page Routing ──────────────────────────────────────────────────────────────
+if selected == "Summary":
+    summary.show()
+elif selected == "Analysis":
+    analysis.show()
+elif selected == "Improvement":
+    improvement.show()

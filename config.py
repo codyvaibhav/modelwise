@@ -2,26 +2,57 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
+MODELS = {
+    'S26U': {'main': 'S26U', 'base': 'S25U', 'n': 70, 'label': 'Galaxy S26U'},
+    'A57':  {'main': 'A57',  'base': 'A56',  'n': 60, 'label': 'Galaxy A57'},
+    'A37':  {'main': 'A37',  'base': 'A36',  'n': 59, 'label': 'Galaxy A37'},
+}
+
+# ── Active Model Defaults (updated at runtime via configure())
 main = 'S26U'
 base = 'S25U'
-n = 89
-# main = 'A57'
-# base = 'A56'
-# n = 60
-marketing_name = f'Galaxy {main}'
-last_updated = datetime.now().strftime("%d %b %Y")
+n    = 70
 
-base_dir = rf".\{main} Data\{n}days"
-file_path = rf"{base_dir}\raw_main.xlsx"
-comparison_path_overall = rf"{base_dir}\overall.xlsx"
+marketing_name = f'Galaxy {main}'
+last_updated   = datetime.now().strftime("%d %b %Y")
+
+base_dir                 = rf".\{main} Data\{n}days"
+file_path                = rf"{base_dir}\raw_main.xlsx"
+comparison_path_overall  = rf"{base_dir}\overall.xlsx"
 comparison_path_domestic = rf"{base_dir}\domestic.xlsx"
-comparison_path_export = rf"{base_dir}\export.xlsx"
-file_base_path = rf"{base_dir}\raw_base.xlsx"
-asrdata_path = rf"{base_dir}\asr_compare.xlsx"
-msclist_path = r".\MSC_list.xlsx"
+comparison_path_export   = rf"{base_dir}\export.xlsx"
+file_base_path           = rf"{base_dir}\raw_base.xlsx"
+asrdata_path             = rf"{base_dir}\asr_compare.xlsx"
+msclist_path             = r".\MSC_list.xlsx"
+
+
+def configure(model_key: str):
+    """Switch the active model and refresh all derived path variables.
+    Call this from main.py before any page renders."""
+    global main, base, n, marketing_name, last_updated
+    global base_dir, file_path, comparison_path_overall
+    global comparison_path_domestic, comparison_path_export
+    global file_base_path, asrdata_path
+
+    cfg            = MODELS[model_key]
+    main           = cfg['main']
+    base           = cfg['base']
+    n              = cfg['n']
+    marketing_name = f'Galaxy {main}'
+    last_updated   = datetime.now().strftime("%d %b %Y")
+
+    base_dir                 = rf".\{main} Data\{n}days"
+    file_path                = rf"{base_dir}\raw_main.xlsx"
+    comparison_path_overall  = rf"{base_dir}\overall.xlsx"
+    comparison_path_domestic = rf"{base_dir}\domestic.xlsx"
+    comparison_path_export   = rf"{base_dir}\export.xlsx"
+    file_base_path           = rf"{base_dir}\raw_base.xlsx"
+    asrdata_path             = rf"{base_dir}\asr_compare.xlsx"
+
+#------------------------------------------------------
 
 def get_data():
-    df = pd.read_excel(file_path, skiprows=8)
+    df = pd.read_excel(file_path, skiprows=9)
     df.columns = df.columns.str.replace('\n', ' ')
     df = df.replace("착하판정", "Return")
     df['ASC Code'] = df['ASC Code'].replace([np.inf, -np.inf], 0)  # Replace inf with 0
